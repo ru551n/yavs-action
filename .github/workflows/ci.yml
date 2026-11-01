@@ -77,3 +77,20 @@ jobs:
         run: |
           pip install vunit-yavs
           python test/vunit/run.py --clean -o "$RUNNER_TEMP/vunit"
+
+  # The step as a user writes it: GitHub fetches the action by name, not from this checkout.
+  by-name:
+    name: by name (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: yavs
+        uses: ru551n/yavs-action@main
+        with:
+          version: 0.10.0
+      - shell: bash
+        run: bash test/check-install.sh 0.10.0 "${{ steps.yavs.outputs.version }}" "${{ steps.yavs.outputs.path }}"
