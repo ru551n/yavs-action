@@ -1,0 +1,79 @@
+# Runs the action from this checkout: the error cases, an exact older version, an unknown version,
+# the latest release and the test runner package. The schedule notices a yavs release that breaks it.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  action:
+    name: action (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Errors name their cause and fix
+        run: bash test/test.sh
+
+      # An exact version that is not the newest, so getting latest instead would fail the check.
+      - name: Exact version
+        id: exact
+        uses: ./
+        with:
+          version: 0.10.0
+      - name: The exact version is installed and runs a design
+        run: bash test/check-install.sh 0.10.0 "${{ steps.exact.outputs.version }}" "${{ steps.exact.outputs.path }}"
+
+      - name: Exact version with a leading v
+        id: prefixed
+        uses: ./
+        with:
+          version: v0.9.0
+      - name: The version with a leading v is installed and runs a design
+        run: bash test/check-install.sh 0.9.0 "${{ steps.prefixed.outputs.version }}" "${{ steps.prefixed.outputs.path }}"
+
+      - name: Unknown version
+        id: unknown
+        continue-on-error: true
+        uses: ./
+        with:
+          version: 9.9.9
+      - name: The unknown version failed the step
+        env:
+          OUTCOME: ${{ steps.unknown.outcome }}
+        run: '[ "$OUTCOME" = failure ]'
+
+      - name: Latest, the default
+        id: latest
+        uses: ./
+      # Newest plain vX.Y.Z release, asked of GitHub another way than the action does.
+      - name: Latest is the newest stable release and runs a design
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          newest=$(gh release list -R ru551n/yavs --limit 100 --json tagName -q '.[].tagName' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+          echo "newest stable release: $newest"
+          bash test/check-install.sh "${newest#v}" "${{ steps.latest.outputs.version }}" "${{ steps.latest.outputs.path }}"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: The test runner package finds the installed yavs
+        run: |
+          pip install vunit-yavs
+          python test/vunit/run.py --clean -o "$RUNNER_TEMP/vunit"

@@ -1,0 +1,26 @@
+name: Setup yavs
+description: Install a release of the yavs VHDL simulator, checksum verified, and put it on PATH.
+branding:
+  icon: cpu
+  color: blue
+inputs:
+  version:
+    description: "yavs version to install: an exact version such as 0.11.0 (recommended), or latest for the newest stable release."
+    default: latest
+outputs:
+  version:
+    description: The installed version, without a leading v.
+    value: ${{ steps.install.outputs.version }}
+  path:
+    description: The directory that holds yavs, already on PATH.
+    value: ${{ steps.install.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        # Only for the lookup of latest, on api.github.com: a token of another GitHub server stays home.
+        LOOKUP_TOKEN: ${{ github.server_url == 'https://github.com' && github.token || '' }}
+      run: bash "$GITHUB_ACTION_PATH/install.sh"
