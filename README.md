@@ -7,7 +7,7 @@ inside is the version asked for, and puts it on `PATH`. Nothing else needs to be
 ```yaml
 steps:
   - uses: actions/checkout@v5
-  - uses: ru551n/yavs-action@main   # write @v1 once this repository has a v1 tag
+  - uses: ru551n/yavs-action@v1
     with:
       version: 0.11.0
   - run: yavs analyze --work=work:build/work src/hello_tb.vhd
