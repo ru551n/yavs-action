@@ -26,7 +26,7 @@ case "$url" in
   *SHA256SUMS)
     v=${url%/SHA256SUMS}; v=${v##*/v}
     hash=$(printf archive | sha256sum | cut -d' ' -f1)
-    printf '%s  %s\n' "$hash" "${STUB_LISTED:-yavs-$v-x86_64-unknown-linux-gnu.tar.gz}" > "$out"
+    printf '%s  %s\n' "$hash" "${STUB_LISTED:-yavs-$v-x86_64-unknown-linux-gnu${STUB_SUFFIX:-}.tar.gz}" > "$out"
     if [ -n "${STUB_DAMAGED:-}" ]; then
       printf '%s  %s\n' 0000 "yavs-$v-x86_64-unknown-linux-gnu.tar.gz" > "$out"
     fi
@@ -40,7 +40,7 @@ STUB
 cat > "$work/stub/tar" <<'STUB'
 #!/usr/bin/env bash
 name=$(basename "$2" .tar.gz)
-v=${name#yavs-}; v=${v%-x86_64-unknown-linux-gnu}
+v=${name#yavs-}; v=${v%%-x86_64-unknown-linux-gnu*}; v=${v%%-aarch64-unknown-linux-gnu*}
 mkdir -p "$4/$name"
 printf '#!/bin/sh\n%s\n' "${STUB_YAVS:-echo yavs $v \(stub\)}" > "$4/$name/yavs"
 chmod +x "$4/$name/yavs"
@@ -70,12 +70,16 @@ rejects() {
 }
 
 # installs NAME VERSION VAR=VALUE...: succeeds and reports that version on PATH and in the outputs.
+# EXPECT_TARGET, EXPECT_SUFFIX (the archive's variant) and EXPECT_OUT (text of the log) can be set.
 installs() {
-  local name=$1 want=$2 out rc=0 dir
+  local name=$1 want=$2 out rc=0 dir t=${EXPECT_TARGET:-x86_64-unknown-linux-gnu} s=${EXPECT_SUFFIX:-}
   shift 2
   out=$(run "$@") || rc=$?
-  dir="$work/tools/yavs/$want/x86_64-unknown-linux-gnu/yavs-$want-x86_64-unknown-linux-gnu"
-  if [ "$rc" != 0 ] || [ "$(cat "$work/path")" != "$dir" ] \
+  dir="$work/tools/yavs/$want/$t$s/yavs-$want-$t$s"
+  if [[ $out != *"${EXPECT_OUT:-}"* ]]; then
+    echo "FAIL $name: output lacks '$EXPECT_OUT': $out"
+    fails=$((fails + 1))
+  elif [ "$rc" != 0 ] || [ "$(cat "$work/path")" != "$dir" ] \
     || [ "$(cat "$work/output")" != "version=$want"$'\n'"path=$dir" ]; then
     echo "FAIL $name: exit status $rc, output: $out, PATH line: $(cat "$work/path")"
     fails=$((fails + 1))
@@ -91,6 +95,22 @@ installs "exact version with v" 1.2.3 INPUT_VERSION=v1.2.3
 installs "exact pre-release version" 1.2.3-rc1 INPUT_VERSION=1.2.3-rc1
 installs "latest is the highest stable tag of yavs itself" 0.10.0 INPUT_VERSION=latest "STUB_JSON=$releases"
 
+EXPECT_SUFFIX=-compat STUB_SUFFIX=-compat installs "compat" 0.14.0 INPUT_VERSION=0.14.0 INPUT_VARIANT=compat
+EXPECT_SUFFIX=-compat STUB_SUFFIX=-compat installs "compat, newer version" 1.2.3 INPUT_VERSION=v1.2.3 INPUT_VARIANT=compat
+installs "variant default" 0.14.0 INPUT_VERSION=0.14.0 INPUT_VARIANT=default
+installs "variant default on an old version" 0.10.0 INPUT_VERSION=0.10.0 INPUT_VARIANT=default
+EXPECT_SUFFIX=-compat STUB_SUFFIX=-compat installs "compat, latest" 0.14.0 INPUT_VERSION=latest INPUT_VARIANT=compat \
+  'STUB_JSON=[{"tag_name":"v0.14.0"},{"tag_name":"v0.9.0"}]'
+EXPECT_TARGET=aarch64-unknown-linux-gnu EXPECT_OUT="::notice" STUB_LISTED=yavs-0.14.0-aarch64-unknown-linux-gnu.tar.gz \
+  installs "compat on aarch64 installs the one archive, with a notice" 0.14.0 INPUT_VERSION=0.14.0 INPUT_VARIANT=compat RUNNER_ARCH=ARM64
+EXPECT_TARGET=aarch64-unknown-linux-gnu STUB_LISTED=yavs-0.10.0-aarch64-unknown-linux-gnu.tar.gz \
+  installs "compat on aarch64 needs no new version" 0.10.0 INPUT_VERSION=0.10.0 INPUT_VARIANT=compat RUNNER_ARCH=ARM64
+
+rejects "unknown variant" "variant 'fast' is not a variant" "default and compat" INPUT_VERSION=1.2.3 INPUT_VARIANT=fast
+rejects "variant in capitals" "variant 'Compat' is not a variant" "default and compat" INPUT_VERSION=1.2.3 INPUT_VARIANT=Compat
+rejects "compat before 0.14.0" "variant compat needs yavs 0.14.0 or newer: v0.13.2" "variant to default" INPUT_VERSION=0.13.2 INPUT_VARIANT=compat
+rejects "compat before 0.14.0, one digit" "variant compat needs yavs 0.14.0 or newer: v0.9.0" "variant to default" INPUT_VERSION=0.9.0 INPUT_VARIANT=compat
+rejects "compat, latest is too old" "variant compat needs yavs 0.14.0 or newer: v0.10.0" "variant to default" INPUT_VERSION=latest INPUT_VARIANT=compat "STUB_JSON=$releases"
 rejects "unsupported platform" "no yavs archive for macOS ARM64" "Linux x86_64" INPUT_VERSION=1.2.3 RUNNER_OS=macOS RUNNER_ARCH=ARM64
 rejects "unsupported architecture" "no yavs archive for Windows ARM64" "build yavs from source" INPUT_VERSION=1.2.3 RUNNER_OS=Windows RUNNER_ARCH=ARM64
 rejects "not a version" "version 'lastest' is not a version" "or latest" INPUT_VERSION=lastest

@@ -7,6 +7,9 @@ inputs:
   version:
     description: "yavs version to install: an exact version such as 0.11.0 (recommended), or latest for the newest stable release."
     default: latest
+  variant:
+    description: "Which archive: default (x86-64-v3 on x86_64, needs AVX2) or compat (runs on any x86_64 CPU; yavs 0.14.0 or newer). On aarch64 both install the one archive."
+    default: default
 outputs:
   version:
     description: The installed version, without a leading v.
@@ -21,6 +24,7 @@ runs:
       shell: bash
       env:
         INPUT_VERSION: ${{ inputs.version }}
+        INPUT_VARIANT: ${{ inputs.variant }}
         # Only for the lookup of latest, on api.github.com: a token of another GitHub server stays home.
         LOOKUP_TOKEN: ${{ github.server_url == 'https://github.com' && github.token || '' }}
       run: bash "$GITHUB_ACTION_PATH/install.sh"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The one step of action.yml: resolve the version, download, verify, unpack, check, add to PATH.
-# Reads INPUT_VERSION, LOOKUP_TOKEN and the runner's RUNNER_*, GITHUB_OUTPUT and GITHUB_PATH.
+# Reads INPUT_VERSION, INPUT_VARIANT, LOOKUP_TOKEN and the runner's RUNNER_*, GITHUB_OUTPUT and GITHUB_PATH.
 set -euo pipefail
 
 releases=https://github.com/ru551n/yavs/releases
@@ -52,6 +52,11 @@ done
 
 requested=${INPUT_VERSION:-}
 version=${requested#v}
+variant=${INPUT_VARIANT:-default}
+case "$variant" in
+  default | compat) ;;
+  *) fail "variant '$variant' is not a variant. The valid values are default and compat." ;;
+esac
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
@@ -61,7 +66,20 @@ elif ! [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
   fail "version '$requested' is not a version. Write an exact version such as 0.11.0, or latest."
 fi
 
-name="yavs-$version-$target"
+# compat is the archive for CPUs without AVX2: the x86_64 targets have one from yavs 0.14.0,
+# aarch64 has only one archive.
+suffix=
+if [ "$variant" = compat ]; then
+  case "$target" in
+    aarch64-*) echo "::notice title=yavs-action::variant compat on $target: the only archive there is installed, as for default." ;;
+    *)
+      [ "$(printf '%s\n0.14.0\n' "${version%%-*}" | sort -V | head -n 1)" = 0.14.0 ] \
+        || fail "variant compat needs yavs 0.14.0 or newer: v$version has no compat archive. Set version to 0.14.0 or newer, or variant to default."
+      suffix=-compat ;;
+  esac
+fi
+
+name="yavs-$version-$target$suffix"
 base="$releases/download/v$version"
 
 fetch "$base/SHA256SUMS" "$tmp/SHA256SUMS"
@@ -86,7 +104,7 @@ tool_cache=${RUNNER_TOOL_CACHE:-$tmp}
 if [ "$RUNNER_OS" = Windows ]; then
   tool_cache=$(cygpath -m "$tool_cache")
 fi
-dir="$tool_cache/yavs/$version/$target"
+dir="$tool_cache/yavs/$version/$target$suffix"
 rm -rf "$dir"
 mkdir -p "$dir"
 if [ "$ext" = zip ]; then

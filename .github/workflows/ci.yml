@@ -1,4 +1,4 @@
-# Runs the action from this checkout: the error cases, an exact older version, an unknown version,
+# Runs the action from this checkout: the error cases, the variants, an exact older version, an unknown version,
 # the latest release and the test runner package. The schedule notices a yavs release that breaks it.
 name: CI
 
@@ -18,7 +18,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, windows-latest]
+        include:
+          - os: ubuntu-24.04
+            default_build: x86-64-v3, AVX2 support
+            compat_build: x86-64 baseline
+          - os: ubuntu-24.04-arm
+            default_build: aarch64
+            compat_build: aarch64
+          - os: windows-latest
+            default_build: x86-64-v3, AVX2 support
+            compat_build: x86-64 baseline
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -45,6 +54,37 @@ jobs:
           version: v0.9.0
       - name: The version with a leading v is installed and runs a design
         run: bash test/check-install.sh 0.9.0 "${{ steps.prefixed.outputs.version }}" "${{ steps.prefixed.outputs.path }}"
+
+      # The first release with a compat archive. The Build line says which archive was installed.
+      - name: Variant default
+        id: variant-default
+        uses: ./
+        with:
+          version: 0.14.0
+          variant: default
+      - name: The default archive is installed and runs a design
+        run: bash test/check-install.sh 0.14.0 "${{ steps.variant-default.outputs.version }}" "${{ steps.variant-default.outputs.path }}" "${{ matrix.default_build }}"
+
+      - name: Variant compat
+        id: variant-compat
+        uses: ./
+        with:
+          version: 0.14.0
+          variant: compat
+      - name: The compat archive is installed and runs a design
+        run: bash test/check-install.sh 0.14.0 "${{ steps.variant-compat.outputs.version }}" "${{ steps.variant-compat.outputs.path }}" "${{ matrix.compat_build }}"
+
+      - name: Unknown variant
+        id: unknown-variant
+        continue-on-error: true
+        uses: ./
+        with:
+          version: 0.14.0
+          variant: fast
+      - name: The unknown variant failed the step
+        env:
+          OUTCOME: ${{ steps.unknown-variant.outcome }}
+        run: '[ "$OUTCOME" = failure ]'
 
       - name: Unknown version
         id: unknown
